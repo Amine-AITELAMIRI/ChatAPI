@@ -60,6 +60,7 @@ source venv/bin/activate
 
 # Install Python dependencies
 echo "📚 Installing Python packages..."
+cd "$PROJECT_DIR"
 ./venv/bin/pip install --upgrade pip
 ./venv/bin/pip install -r requirements.txt
 
