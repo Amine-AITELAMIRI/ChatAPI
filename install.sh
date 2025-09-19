@@ -24,7 +24,7 @@ sudo apt update && sudo apt upgrade -y
 
 # Install Python and pip
 echo "🐍 Installing Python and pip..."
-sudo apt install python3 python3-pip python3-venv -y
+sudo apt install python3 python3-pip python3-venv python3-full -y
 
 # Install system dependencies for Playwright
 echo "🔧 Installing system dependencies..."
@@ -60,12 +60,12 @@ source venv/bin/activate
 
 # Install Python dependencies
 echo "📚 Installing Python packages..."
-pip install --upgrade pip
-pip install -r requirements.txt
+./venv/bin/pip install --upgrade pip
+./venv/bin/pip install -r requirements.txt
 
 # Install Playwright browsers
 echo "🌐 Installing Playwright browsers..."
-playwright install chromium
+./venv/bin/playwright install chromium
 
 # Make scripts executable
 chmod +x start_server.py
@@ -78,10 +78,11 @@ echo ""
 echo "✅ Installation completed!"
 echo ""
 echo "Next steps:"
-echo "1. Start the server: python3 start_server.py"
-echo "2. Test the API: python3 test_api.py"
-echo "3. Configure port forwarding on your router"
-echo "4. Access from internet: http://YOUR_PUBLIC_IP:8000"
+echo "1. Activate virtual environment: source venv/bin/activate"
+echo "2. Start the server: python3 start_server.py"
+echo "3. Test the API: python3 test_api.py"
+echo "4. Configure port forwarding on your router"
+echo "5. Access from internet: http://YOUR_PUBLIC_IP:8000"
 echo ""
 echo "📖 See README.md for detailed instructions"
 echo ""
