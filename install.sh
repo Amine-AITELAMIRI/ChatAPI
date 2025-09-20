@@ -43,24 +43,23 @@ sudo apt install -y \
     libx11-xcb1 \
     libxcb-dri3-0
 
-# Create project directory
+# Get the current directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Create project directory in user's home (not root)
 if [ -d "/home/pi" ]; then
     PROJECT_DIR="/home/pi/ChatAPI"
 else
     PROJECT_DIR="$HOME/ChatAPI"
 fi
+
 echo "📁 Creating project directory: $PROJECT_DIR"
 mkdir -p "$PROJECT_DIR"
-cd "$PROJECT_DIR"
 
-# Copy project files (assuming they're in current directory)
+# Copy project files from script directory to project directory
 echo "📋 Copying project files..."
-if [ "$(pwd)" != "$PROJECT_DIR" ]; then
-    cp -r . "$PROJECT_DIR/" 2>/dev/null || echo "Files already in place"
-    cd "$PROJECT_DIR"
-else
-    echo "Already in project directory"
-fi
+cp -r "$SCRIPT_DIR"/* "$PROJECT_DIR/" 2>/dev/null || echo "Files already in place"
+cd "$PROJECT_DIR"
 
 # Create virtual environment
 echo "🔒 Creating Python virtual environment..."
@@ -70,12 +69,12 @@ source venv/bin/activate
 # Install Python dependencies
 echo "📚 Installing Python packages..."
 cd "$PROJECT_DIR"
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install -r requirements.txt
+"$PROJECT_DIR/venv/bin/pip" install --upgrade pip
+"$PROJECT_DIR/venv/bin/pip" install -r requirements.txt
 
 # Install Playwright browsers
 echo "🌐 Installing Playwright browsers..."
-./venv/bin/playwright install chromium
+"$PROJECT_DIR/venv/bin/playwright" install chromium
 
 # Make scripts executable
 chmod +x start_server.py
