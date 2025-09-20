@@ -31,7 +31,7 @@ echo "🔧 Installing system dependencies..."
 sudo apt install -y \
     libnss3 \
     libnspr4 \
-    libatk-bridge2.0-0 \
+    libatk-bridge2.0-0t64 \
     libdrm2 \
     libxkbcommon0 \
     libxcomposite1 \
@@ -39,19 +39,28 @@ sudo apt install -y \
     libxrandr2 \
     libgbm1 \
     libxss1 \
-    libasound2 \
+    libasound2t64 \
     libx11-xcb1 \
     libxcb-dri3-0
 
 # Create project directory
-PROJECT_DIR="/home/pi/ChatAPI"
+if [ -d "/home/pi" ]; then
+    PROJECT_DIR="/home/pi/ChatAPI"
+else
+    PROJECT_DIR="$HOME/ChatAPI"
+fi
 echo "📁 Creating project directory: $PROJECT_DIR"
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 
 # Copy project files (assuming they're in current directory)
 echo "📋 Copying project files..."
-cp -r . "$PROJECT_DIR/" 2>/dev/null || echo "Files already in place"
+if [ "$(pwd)" != "$PROJECT_DIR" ]; then
+    cp -r . "$PROJECT_DIR/" 2>/dev/null || echo "Files already in place"
+    cd "$PROJECT_DIR"
+else
+    echo "Already in project directory"
+fi
 
 # Create virtual environment
 echo "🔒 Creating Python virtual environment..."
