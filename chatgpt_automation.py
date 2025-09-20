@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 import time
 import random
 from config import Config
@@ -102,226 +102,225 @@ class ChatGPTAutomation:
         logger.error("Failed to initialize ChatGPT automation after all retries")
         return False
     
+
+
+
     async def get_chat_response(self, prompt: str, max_retries: int = 3):
         """Get response from ChatGPT for the given prompt"""
         try:
-            # Check if automation is ready
             if not self.is_initialized or not self.is_logged_in:
                 logger.error("ChatGPT automation not ready. Please ensure server started successfully.")
                 return None
-            
-            # Debug: Check page title and URL
+
             page_title = await self.page.title()
             page_url = self.page.url
             logger.info(f"Current page: {page_title} at {page_url}")
-            
-            # Try multiple selectors for the chat input
+
+            login_prompt = await self.page.query_selector(
+                'button[data-testid="login-button"], button[data-testid="mobile-login-button"], a[href="/auth/login"]'
+            )
+            if login_prompt:
+                logger.error("ChatGPT login screen detected. Please log in via the automation browser window.")
+                return None
+
+            existing_messages = await self.page.query_selector_all('[data-message-author-role="assistant"]')
+            previous_response_count = len(existing_messages)
+
             chat_input = None
             selectors_to_try = [
-                'div[contenteditable="true"].ProseMirror',  # The actual input field
-                'div#prompt-textarea[contenteditable="true"]',  # By ID
-                'div[contenteditable="true"]',  # Any contenteditable div
-                'textarea[name="prompt-textarea"]',  # Hidden textarea fallback
-                'textarea[placeholder*="Ask anything"]',  # Placeholder text
+                'div[contenteditable="true"].ProseMirror',
+                'div#prompt-textarea[contenteditable="true"]',
+                'div[contenteditable="true"]',
+                'textarea[name="prompt-textarea"]',
+                'textarea[placeholder*="Ask anything"]',
                 'textarea[placeholder*="Message"]',
-                'textarea[placeholder="Message ChatGPT…"]',
+                'textarea[placeholder="Message ChatGPT"]',
                 'textarea[data-id="root"]',
                 'textarea[role="textbox"]',
                 'textarea[aria-label*="Message"]',
                 'textarea'
             ]
-            
+
             for selector in selectors_to_try:
                 logger.info(f"Trying selector: {selector}")
                 chat_input = await self.page.query_selector(selector)
                 if chat_input:
                     logger.info(f"Found chat input with selector: {selector}")
                     break
-            
+
             if not chat_input:
-                # Debug: List all textareas and contenteditable divs on the page
                 all_textareas = await self.page.query_selector_all('textarea')
                 all_contenteditable = await self.page.query_selector_all('div[contenteditable="true"]')
-                
-                logger.error(f"Could not find chat input field. Found {len(all_textareas)} textareas and {len(all_contenteditable)} contenteditable divs:")
-                
+
+                logger.error(
+                    f"Could not find chat input field. Found {len(all_textareas)} textareas and {len(all_contenteditable)} contenteditable divs:"
+                )
+
                 for i, textarea in enumerate(all_textareas):
                     try:
                         placeholder = await textarea.get_attribute('placeholder')
                         role = await textarea.get_attribute('role')
                         data_id = await textarea.get_attribute('data-id')
                         name = await textarea.get_attribute('name')
-                        logger.error(f"  Textarea {i+1}: placeholder='{placeholder}', role='{role}', data-id='{data_id}', name='{name}'")
-                    except:
-                        logger.error(f"  Textarea {i+1}: Could not get attributes")
-                
+                        logger.error(
+                            f"  Textarea {i + 1}: placeholder='{placeholder}', role='{role}', data-id='{data_id}', name='{name}'"
+                        )
+                    except Exception:
+                        logger.error(f"  Textarea {i + 1}: Could not get attributes")
+
                 for i, div in enumerate(all_contenteditable):
                     try:
                         class_name = await div.get_attribute('class')
                         id_attr = await div.get_attribute('id')
-                        logger.error(f"  Contenteditable div {i+1}: class='{class_name}', id='{id_attr}'")
-                    except:
-                        logger.error(f"  Contenteditable div {i+1}: Could not get attributes")
-                
+                        logger.error(f"  Contenteditable div {i + 1}: class='{class_name}', id='{id_attr}'")
+                    except Exception:
+                        logger.error(f"  Contenteditable div {i + 1}: Could not get attributes")
+
                 return None
-            
-            # Clear any existing text and type the prompt
-            logger.info(f"Clicking on chat input and typing: '{prompt}'")
+
             await chat_input.click()
-            await asyncio.sleep(0.5)  # Wait for focus
-            
-            # Check if it's a contenteditable div or textarea
+            await asyncio.sleep(0.2)
+            try:
+                await chat_input.evaluate('el => el.focus()')
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+
             tag_name = await chat_input.evaluate('el => el.tagName.toLowerCase()')
             logger.info(f"Input element type: {tag_name}")
-            
+
+            current_text = ''
             if tag_name == 'div':
-                # Handle contenteditable div (ProseMirror)
-                logger.info("Handling contenteditable div input")
-                
-                # Clear existing content
-                await chat_input.evaluate('el => el.innerHTML = ""')
-                await asyncio.sleep(0.2)
-                
-                # Type the prompt using innerHTML
-                await chat_input.evaluate(f'el => el.innerHTML = "<p>{prompt}</p>"')
+                logger.info("Handling contenteditable div input via keyboard")
+                cleared = False
+                for shortcut in ("Control+A", "Meta+A"):
+                    try:
+                        await self.page.keyboard.press(shortcut)
+                        await asyncio.sleep(0.1)
+                        await self.page.keyboard.press('Backspace')
+                        cleared = True
+                        break
+                    except Exception:
+                        continue
+                if not cleared:
+                    try:
+                        await chat_input.evaluate('el => el.innerHTML = ""')
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.1)
+                await self.page.keyboard.type(prompt, delay=50)
                 await asyncio.sleep(0.5)
-                
-                # Trigger input event to notify the editor
-                await chat_input.evaluate('el => el.dispatchEvent(new Event("input", { bubbles: true }))')
-                await asyncio.sleep(0.2)
-                
-                # Verify text was entered
                 current_text = await chat_input.inner_text()
-                logger.info(f"Text in contenteditable div: '{current_text}'")
-                
             else:
-                # Handle regular textarea
                 logger.info("Handling textarea input")
-                
-                # Clear any existing text
                 await chat_input.fill('')
                 await asyncio.sleep(0.2)
-                
-                # Type the prompt
-                await chat_input.type(prompt, delay=50)  # Type with small delay
-                await asyncio.sleep(0.5)  # Wait for typing to complete
-                
-                # Verify text was entered
+                await chat_input.type(prompt, delay=50)
+                await asyncio.sleep(0.5)
                 current_text = await chat_input.input_value()
-                logger.info(f"Text in textarea: '{current_text}'")
-            
+
             if not current_text or current_text.strip() != prompt.strip():
                 logger.error(f"Failed to type text properly. Expected: '{prompt}', Got: '{current_text}'")
                 return None
-            
-            # Find and click the send button
-            send_button = None
-            send_selectors = [
-                'button[data-testid="send-button"]',
-                'button:has-text("Send")',
-                'button[aria-label*="Send"]',
-                'button[title*="Send"]',
-                'button:has(svg)',
-                'button[type="submit"]'
-            ]
-            
-            for selector in send_selectors:
-                logger.info(f"Trying send button selector: {selector}")
-                send_button = await self.page.query_selector(selector)
-                if send_button:
-                    logger.info(f"Found send button with selector: {selector}")
-                    break
-            
-            if not send_button:
-                # Debug: List all buttons on the page
-                all_buttons = await self.page.query_selector_all('button')
-                logger.error(f"Could not find send button. Found {len(all_buttons)} buttons on page:")
-                for i, button in enumerate(all_buttons):
-                    try:
-                        text = await button.inner_text()
-                        aria_label = await button.get_attribute('aria-label')
-                        title = await button.get_attribute('title')
-                        data_testid = await button.get_attribute('data-testid')
-                        logger.error(f"  Button {i+1}: text='{text}', aria-label='{aria_label}', title='{title}', data-testid='{data_testid}'")
-                    except:
-                        logger.error(f"  Button {i+1}: Could not get attributes")
-                return None
-            
-            # Click the send button
-            logger.info("Clicking send button...")
-            await send_button.click()
-            logger.info("Send button clicked - prompt sent to ChatGPT")
-            
-            # Wait a moment for the request to be processed
-            await asyncio.sleep(2)
-            
-            # Wait for response
-            response = await self.wait_for_response(max_retries)
-            return response
-            
+
+            total_timeout = Config.RESPONSE_TIMEOUT * max(1, max_retries)
+
+            try:
+                await self.page.keyboard.press('Enter')
+                logger.info("Pressed Enter to send the message")
+            except Exception as enter_error:
+                logger.warning(f"Failed to send message with Enter key: {str(enter_error)}")
+
+            response = await self.wait_for_response(previous_response_count, total_timeout)
+            if response:
+                return response
+
+            logger.warning("No response detected after pressing Enter. Trying send button fallback.")
+            if await self.click_send_button():
+                response = await self.wait_for_response(previous_response_count, max(1, total_timeout // 2))
+                if response:
+                    return response
+
+            logger.error("Failed to obtain response from ChatGPT after retries")
+            return None
+
         except Exception as e:
             logger.error(f"Error getting chat response: {str(e)}")
             return None
-    
-    async def wait_for_response(self, max_retries: int = 3):
-        """Wait for ChatGPT to generate a response"""
-        try:
-            logger.info("Waiting for ChatGPT response...")
-            
-            # Wait for the response to start appearing
-            await asyncio.sleep(3)
-            
-            # Look for the response in the chat
-            for attempt in range(max_retries):
+
+    async def click_send_button(self) -> bool:
+        """Attempt to click the send button if it exists"""
+        send_selectors = [
+            'button[data-testid="composer-send-button"]',
+            'button[data-testid="send-button"]',
+            'button[aria-label*="Send"]',
+            'button[title*="Send"]',
+            'button[type="submit"]'
+        ]
+
+        for selector in send_selectors:
+            logger.info(f"Trying send button selector: {selector}")
+            try:
+                send_button = await self.page.query_selector(selector)
+            except Exception as query_error:
+                logger.debug(f"Selector query failed for {selector}: {query_error}")
+                continue
+
+            if send_button:
+                logger.info(f"Found send button with selector: {selector}")
                 try:
-                    logger.info(f"Attempt {attempt + 1}: Looking for assistant response...")
-                    
-                    # Try multiple selectors for assistant messages
-                    response_selectors = [
-                        '[data-message-author-role="assistant"]',
-                        '[data-testid="conversation-turn-3"]',  # Common ChatGPT selector
-                        '.markdown',  # Response content
-                        '[role="presentation"]',  # Another common selector
-                        '.prose'  # Response text container
-                    ]
-                    
-                    assistant_message = None
-                    for selector in response_selectors:
-                        try:
-                            logger.info(f"Trying response selector: {selector}")
-                            await self.page.wait_for_selector(selector, timeout=10000)
-                            assistant_message = await self.page.query_selector(selector)
-                            if assistant_message:
-                                logger.info(f"Found response with selector: {selector}")
-                                break
-                        except:
-                            continue
-                    
-                    if assistant_message:
-                        # Extract text content
-                        response_text = await assistant_message.inner_text()
-                        logger.info(f"Response text preview: '{response_text[:100]}...'")
-                        
-                        if response_text and len(response_text.strip()) > 0:
-                            logger.info("Successfully received response from ChatGPT")
-                            return response_text.strip()
-                    
-                    # If no response yet, wait a bit more
-                    logger.info(f"No response yet, waiting 5 seconds... (attempt {attempt + 1}/{max_retries})")
-                    await asyncio.sleep(5)
-                    
-                except Exception as e:
-                    logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(5)
-            
-            logger.error("Failed to get response after all retries")
+                    await send_button.click()
+                    logger.info("Send button clicked")
+                    return True
+                except Exception as click_error:
+                    logger.error(f"Failed to click send button: {str(click_error)}")
+
+        all_buttons = await self.page.query_selector_all('button')
+        logger.error(f"Could not find send button. Found {len(all_buttons)} buttons on page:")
+        for i, button in enumerate(all_buttons):
+            try:
+                text = await button.inner_text()
+                aria_label = await button.get_attribute('aria-label')
+                title = await button.get_attribute('title')
+                data_testid = await button.get_attribute('data-testid')
+                logger.error(
+                    f"  Button {i + 1}: text='{text}', aria-label='{aria_label}', title='{title}', data-testid='{data_testid}'"
+                )
+            except Exception:
+                logger.error(f"  Button {i + 1}: Could not get attributes")
+        return False
+
+    async def wait_for_response(self, previous_count: int, timeout_seconds: int):
+        """Wait for ChatGPT to generate a response"""
+        selector = '[data-message-author-role="assistant"]'
+        timeout_ms = max(1000, timeout_seconds * 1000)
+        try:
+            await self.page.wait_for_function(
+                '(payload) => document.querySelectorAll(payload.selector).length > payload.previousCount',
+                {"selector": selector, "previousCount": previous_count},
+                timeout=timeout_ms
+            )
+            await asyncio.sleep(2)
+
+            assistant_messages = await self.page.query_selector_all(selector)
+            if assistant_messages:
+                latest_element = assistant_messages[-1]
+                response_text = await latest_element.inner_text()
+                if response_text and response_text.strip():
+                    cleaned = response_text.strip()
+                    logger.info(f"Response text preview: '{cleaned[:100]}...'")
+                    return cleaned
+
+            logger.error("Assistant response not found after wait")
             return None
-            
+
+        except PlaywrightTimeoutError:
+            logger.error("Timed out waiting for assistant response")
+            return None
         except Exception as e:
             logger.error(f"Error waiting for response: {str(e)}")
             return None
-    
+
     async def is_browser_connected(self):
         """Check if browser is still connected and accessible"""
         try:
