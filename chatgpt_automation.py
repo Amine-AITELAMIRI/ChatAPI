@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 import time
 import random
 from config import Config
@@ -326,20 +326,20 @@ class ChatGPTAutomation:
                 logger.error(f"  Button {i + 1}: Could not get attributes")
         return False
 
-    async def wait_for_response(self, previous_count: int, timeout_seconds: int):
-        """Wait for ChatGPT to generate a response"""
-        selector = '[data-message-author-role="assistant"]'
-        timeout_ms = max(1000, timeout_seconds * 1000)
-        try:
-            await self.page.wait_for_function(
-                '(payload) => document.querySelectorAll(payload.selector).length > payload.previousCount',
-                arg={"selector": selector, "previousCount": previous_count},
-                timeout=timeout_ms
-            )
-            await asyncio.sleep(2)
 
-            assistant_messages = await self.page.query_selector_all(selector)
-            if assistant_messages:
+    async def wait_for_response(self, previous_count: int, timeout_seconds: int):
+        """Wait for ChatGPT to generate a response by polling the DOM."""
+        selector = '[data-message-author-role="assistant"]'
+        deadline = time.time() + max(1, timeout_seconds)
+
+        while time.time() < deadline:
+            try:
+                assistant_messages = await self.page.query_selector_all(selector)
+            except Exception as query_error:
+                logger.error(f"Error querying assistant messages: {query_error}")
+                return None
+
+            if assistant_messages and len(assistant_messages) > previous_count:
                 latest_element = assistant_messages[-1]
                 response_text = await latest_element.inner_text()
                 if response_text and response_text.strip():
@@ -347,15 +347,15 @@ class ChatGPTAutomation:
                     logger.info(f"Response text preview: '{cleaned[:100]}...'")
                     return cleaned
 
-            logger.error("Assistant response not found after wait")
-            return None
+            login_prompt = await self.page.query_selector('button[data-testid="login-button"], button[data-testid="mobile-login-button"]')
+            if login_prompt:
+                logger.error("ChatGPT requested login before responding.")
+                return None
 
-        except PlaywrightTimeoutError:
-            logger.error("Timed out waiting for assistant response")
-            return None
-        except Exception as e:
-            logger.error(f"Error waiting for response: {str(e)}")
-            return None
+            await asyncio.sleep(1)
+
+        logger.error("Timed out waiting for assistant response")
+        return None
 
     async def is_browser_connected(self):
         """Check if browser is still connected and accessible"""
