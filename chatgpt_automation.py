@@ -110,10 +110,41 @@ class ChatGPTAutomation:
                 logger.error("ChatGPT automation not ready. Please ensure server started successfully.")
                 return None
             
-            # Find the chat input
-            chat_input = await self.page.query_selector('textarea[placeholder*="Message"]')
+            # Debug: Check page title and URL
+            page_title = await self.page.title()
+            page_url = self.page.url
+            logger.info(f"Current page: {page_title} at {page_url}")
+            
+            # Try multiple selectors for the chat input
+            chat_input = None
+            selectors_to_try = [
+                'textarea[placeholder*="Message"]',
+                'textarea[placeholder="Message ChatGPT…"]',
+                'textarea[data-id="root"]',
+                'textarea[role="textbox"]',
+                'textarea[aria-label*="Message"]',
+                'textarea'
+            ]
+            
+            for selector in selectors_to_try:
+                logger.info(f"Trying selector: {selector}")
+                chat_input = await self.page.query_selector(selector)
+                if chat_input:
+                    logger.info(f"Found chat input with selector: {selector}")
+                    break
+            
             if not chat_input:
-                logger.error("Could not find chat input field")
+                # Debug: List all textareas on the page
+                all_textareas = await self.page.query_selector_all('textarea')
+                logger.error(f"Could not find chat input field. Found {len(all_textareas)} textareas on page:")
+                for i, textarea in enumerate(all_textareas):
+                    try:
+                        placeholder = await textarea.get_attribute('placeholder')
+                        role = await textarea.get_attribute('role')
+                        data_id = await textarea.get_attribute('data-id')
+                        logger.error(f"  Textarea {i+1}: placeholder='{placeholder}', role='{role}', data-id='{data_id}'")
+                    except:
+                        logger.error(f"  Textarea {i+1}: Could not get attributes")
                 return None
             
             # Clear any existing text and type the prompt
@@ -122,13 +153,36 @@ class ChatGPTAutomation:
             await chat_input.type(prompt, delay=50)  # Type with small delay
             
             # Find and click the send button
-            send_button = await self.page.query_selector('button[data-testid="send-button"]')
-            if not send_button:
-                # Try alternative selector
-                send_button = await self.page.query_selector('button:has-text("Send")')
+            send_button = None
+            send_selectors = [
+                'button[data-testid="send-button"]',
+                'button:has-text("Send")',
+                'button[aria-label*="Send"]',
+                'button[title*="Send"]',
+                'button:has(svg)',
+                'button[type="submit"]'
+            ]
+            
+            for selector in send_selectors:
+                logger.info(f"Trying send button selector: {selector}")
+                send_button = await self.page.query_selector(selector)
+                if send_button:
+                    logger.info(f"Found send button with selector: {selector}")
+                    break
             
             if not send_button:
-                logger.error("Could not find send button")
+                # Debug: List all buttons on the page
+                all_buttons = await self.page.query_selector_all('button')
+                logger.error(f"Could not find send button. Found {len(all_buttons)} buttons on page:")
+                for i, button in enumerate(all_buttons):
+                    try:
+                        text = await button.inner_text()
+                        aria_label = await button.get_attribute('aria-label')
+                        title = await button.get_attribute('title')
+                        data_testid = await button.get_attribute('data-testid')
+                        logger.error(f"  Button {i+1}: text='{text}', aria-label='{aria_label}', title='{title}', data-testid='{data_testid}'")
+                    except:
+                        logger.error(f"  Button {i+1}: Could not get attributes")
                 return None
             
             await send_button.click()
