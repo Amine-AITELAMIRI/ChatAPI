@@ -34,12 +34,17 @@ async def main():
         # Initialize ChatGPT automation and handle login
         logger.info("Initializing ChatGPT automation...")
         logger.info("Browser will open - please log in to ChatGPT when prompted")
+        logger.info("IMPORTANT: Keep the browser window open during login!")
         
         initialization_success = await chatgpt_automation.startup_initialization()
         
         if not initialization_success:
             logger.error("Failed to initialize ChatGPT automation. Server cannot start.")
-            logger.error("Please check your internet connection and try again.")
+            logger.error("Common issues:")
+            logger.error("1. Browser window was closed during login")
+            logger.error("2. Internet connection problems")
+            logger.error("3. ChatGPT login failed")
+            logger.error("Please try again and keep the browser window open during login.")
             sys.exit(1)
         
         logger.info("ChatGPT automation ready! Starting API server...")

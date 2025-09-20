@@ -57,21 +57,47 @@ class ChatGPTAutomation:
                 return True
             
             # If not logged in, we need manual intervention
-            logger.warning("Not logged in to ChatGPT. Please log in manually in the browser.")
+            logger.warning("=" * 60)
+            logger.warning("LOGIN REQUIRED")
+            logger.warning("=" * 60)
+            logger.warning("Please log in to ChatGPT in the browser window that opened.")
+            logger.warning("IMPORTANT: Do NOT close the browser window during login!")
             logger.warning("The automation will wait for you to complete the login process...")
+            logger.warning("=" * 60)
             
             # Wait for user to log in manually
             max_wait_time = 300  # 5 minutes
             start_time = time.time()
             
             while time.time() - start_time < max_wait_time:
-                await asyncio.sleep(2)
-                chat_input = await self.page.query_selector('textarea[placeholder*="Message"]')
-                
-                if chat_input:
-                    self.is_logged_in = True
-                    logger.info("Login detected! Ready to process requests.")
-                    return True
+                try:
+                    # Check if page is still accessible
+                    await self.page.evaluate('() => document.title')
+                    
+                    # Check for login completion
+                    chat_input = await self.page.query_selector('textarea[placeholder*="Message"]')
+                    
+                    if chat_input:
+                        self.is_logged_in = True
+                        logger.info("✅ Login detected! Ready to process requests.")
+                        return True
+                    
+                    # Check if we're on a different page (might indicate login redirect)
+                    current_url = self.page.url
+                    if 'chat.openai.com' in current_url and 'auth' not in current_url:
+                        # We're on the main chat page, check again for input
+                        chat_input = await self.page.query_selector('textarea[placeholder*="Message"]')
+                        if chat_input:
+                            self.is_logged_in = True
+                            logger.info("✅ Login detected! Ready to process requests.")
+                            return True
+                    
+                    await asyncio.sleep(2)
+                    
+                except Exception as page_error:
+                    logger.error(f"Browser page error during login wait: {str(page_error)}")
+                    logger.error("Browser window may have been closed. Please restart the server.")
+                    return False
             
             logger.error("Login timeout. Please try again.")
             return False
@@ -96,8 +122,22 @@ class ChatGPTAutomation:
                     return False
                 
                 # Handle login
-                if not await self.login_if_needed():
+                login_success = await self.login_if_needed()
+                if not login_success:
                     logger.error(f"Failed to complete login during startup (attempt {attempt + 1})")
+                    
+                    # Check if browser was closed
+                    try:
+                        await self.page.evaluate('() => document.title')
+                        logger.info("Browser still open, retrying login process...")
+                    except:
+                        logger.error("Browser window was closed during login!")
+                        logger.error("Please keep the browser window open during the login process.")
+                        logger.error("Restarting browser for retry...")
+                        await self.close()  # Clean up before retry
+                        await asyncio.sleep(5)
+                        continue
+                    
                     if attempt < max_retries - 1:
                         logger.info("Retrying login process...")
                         await self.close()  # Clean up before retry
@@ -200,6 +240,16 @@ class ChatGPTAutomation:
         except Exception as e:
             logger.error(f"Error waiting for response: {str(e)}")
             return None
+    
+    async def is_browser_connected(self):
+        """Check if browser is still connected and accessible"""
+        try:
+            if not self.page:
+                return False
+            await self.page.evaluate('() => document.title')
+            return True
+        except:
+            return False
     
     async def close(self):
         """Close the browser and cleanup"""
