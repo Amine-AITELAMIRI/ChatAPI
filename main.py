@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import asyncio
 import logging
-from chatgpt_automation import ChatGPTAutomation
+from chatgpt_automation import chatgpt_automation
 import uvicorn
 
 # Configure logging
@@ -11,8 +11,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Custom ChatGPT API", version="1.0.0")
 
-# Initialize ChatGPT automation
-chatgpt_automation = ChatGPTAutomation()
+# Use the same automation instance as start_server.py
 
 class ChatRequest(BaseModel):
     prompt: str
