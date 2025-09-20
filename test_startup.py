@@ -14,7 +14,7 @@ async def test_startup():
     automation = ChatGPTAutomation()
     
     logger.info("Testing startup initialization...")
-    logger.info("Browser should open and wait for login...")
+    logger.info("Browser should open and navigate to ChatGPT (login detection disabled)")
     
     success = await automation.startup_initialization()
     
