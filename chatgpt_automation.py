@@ -20,7 +20,7 @@ class ChatGPTAutomation:
             
             # Launch browser in headless mode (set to False for debugging)
             self.browser = await self.playwright.chromium.launch(
-                headless=True,
+                headless=False,
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
