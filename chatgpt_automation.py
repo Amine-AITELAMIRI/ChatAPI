@@ -119,9 +119,9 @@ class ChatGPTAutomation:
             login_prompt = await self.page.query_selector(
                 'button[data-testid="login-button"], button[data-testid="mobile-login-button"], a[href="/auth/login"]'
             )
-            if login_prompt:
-                logger.error("ChatGPT login screen detected. Please log in via the automation browser window.")
-                return None
+            login_prompt_present = login_prompt is not None
+
+            await self.dismiss_page_overlays()
 
             existing_messages = await self.page.query_selector_all('[data-message-author-role="assistant"]')
             previous_response_count = len(existing_messages)
@@ -149,6 +149,9 @@ class ChatGPTAutomation:
                     break
 
             if not chat_input:
+                if login_prompt_present:
+                    logger.error("ChatGPT login screen detected. Please log in or open a temporary chat manually.")
+                    return None
                 all_textareas = await self.page.query_selector_all('textarea')
                 all_contenteditable = await self.page.query_selector_all('div[contenteditable="true"]')
 
@@ -247,6 +250,28 @@ class ChatGPTAutomation:
         except Exception as e:
             logger.error(f"Error getting chat response: {str(e)}")
             return None
+
+
+
+    async def dismiss_page_overlays(self):
+        """Click cookie/consent dialogs so the composer remains usable"""
+        selectors = [
+            'button:has-text("Accept all")',
+            'button:has-text("Accept")',
+            'button:has-text("Reject non-essential")',
+            'button:has-text("I agree")',
+            'button:has-text("Got it")'
+        ]
+        for selector in selectors:
+            try:
+                button = await self.page.query_selector(selector)
+                if button:
+                    logger.info(f"Clicking overlay button: {selector}")
+                    await button.click()
+                    await asyncio.sleep(0.3)
+                    break
+            except Exception as overlay_error:
+                logger.debug(f"Overlay dismissal failed for {selector}: {overlay_error}")
 
     async def click_send_button(self) -> bool:
         """Attempt to click the send button if it exists"""
