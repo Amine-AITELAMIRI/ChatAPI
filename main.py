@@ -25,7 +25,12 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "Custom ChatGPT API is running!", "status": "healthy"}
+    automation_ready = chatgpt_automation.is_initialized and chatgpt_automation.is_logged_in
+    return {
+        "message": "Custom ChatGPT API is running!", 
+        "status": "healthy" if automation_ready else "initializing",
+        "automation_ready": automation_ready
+    }
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -33,6 +38,15 @@ async def chat(request: ChatRequest):
     Send a prompt to ChatGPT and return the response
     """
     try:
+        # Check if automation is ready
+        if not chatgpt_automation.is_initialized or not chatgpt_automation.is_logged_in:
+            logger.error("Chat request received but automation not ready")
+            return ChatResponse(
+                response="", 
+                success=False, 
+                error_message="ChatGPT automation not ready. Please ensure server started successfully and login completed."
+            )
+        
         logger.info(f"Received chat request: {request.prompt[:50]}...")
         
         # Get response from ChatGPT
@@ -62,15 +76,25 @@ async def health_check():
     Health check endpoint
     """
     try:
+        # Check if automation is initialized and logged in
+        if not chatgpt_automation.is_initialized or not chatgpt_automation.is_logged_in:
+            return {
+                "status": "unhealthy",
+                "chatgpt_accessible": False,
+                "error": "ChatGPT automation not ready - please ensure server started successfully"
+            }
+        
         # Test if ChatGPT automation is working
         test_response = await chatgpt_automation.get_chat_response("Hello", max_retries=1)
         return {
             "status": "healthy",
-            "chatgpt_accessible": test_response is not None
+            "chatgpt_accessible": test_response is not None,
+            "automation_ready": True
         }
     except Exception as e:
         return {
             "status": "unhealthy",
+            "chatgpt_accessible": False,
             "error": str(e)
         }
 

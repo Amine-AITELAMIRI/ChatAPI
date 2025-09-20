@@ -8,6 +8,7 @@ import sys
 from main import app
 import uvicorn
 from config import Config
+from chatgpt_automation import chatgpt_automation
 
 def setup_logging():
     """Setup logging configuration"""
@@ -30,6 +31,19 @@ async def main():
     logger.info("API Documentation: http://localhost:8000/docs")
     
     try:
+        # Initialize ChatGPT automation and handle login
+        logger.info("Initializing ChatGPT automation...")
+        logger.info("Browser will open - please log in to ChatGPT when prompted")
+        
+        initialization_success = await chatgpt_automation.startup_initialization()
+        
+        if not initialization_success:
+            logger.error("Failed to initialize ChatGPT automation. Server cannot start.")
+            logger.error("Please check your internet connection and try again.")
+            sys.exit(1)
+        
+        logger.info("ChatGPT automation ready! Starting API server...")
+        
         # Start the server
         config = uvicorn.Config(
             app,
@@ -43,8 +57,12 @@ async def main():
         
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
+        # Clean up browser
+        await chatgpt_automation.close()
     except Exception as e:
         logger.error(f"Server error: {str(e)}")
+        # Clean up browser
+        await chatgpt_automation.close()
         sys.exit(1)
 
 if __name__ == "__main__":

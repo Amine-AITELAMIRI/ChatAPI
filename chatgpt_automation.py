@@ -3,6 +3,7 @@ import logging
 from playwright.async_api import async_playwright
 import time
 import random
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -12,22 +13,17 @@ class ChatGPTAutomation:
         self.page = None
         self.playwright = None
         self.is_logged_in = False
+        self.is_initialized = False
         
     async def initialize(self):
         """Initialize the browser and navigate to ChatGPT"""
         try:
             self.playwright = await async_playwright().start()
             
-            # Launch browser in headless mode (set to False for debugging)
+            # Launch browser with configuration settings
             self.browser = await self.playwright.chromium.launch(
-                headless=False,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
-                ]
+                headless=Config.HEADLESS_MODE,
+                args=Config.get_browser_args()
             )
             
             # Create new page
@@ -42,6 +38,7 @@ class ChatGPTAutomation:
             await self.page.goto('https://chat.openai.com/', wait_until='networkidle')
             
             logger.info("Browser initialized and navigated to ChatGPT")
+            self.is_initialized = True
             return True
             
         except Exception as e:
@@ -83,18 +80,53 @@ class ChatGPTAutomation:
             logger.error(f"Error during login check: {str(e)}")
             return False
     
+    async def startup_initialization(self, max_retries: int = 3):
+        """Initialize browser and handle login during server startup"""
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Starting ChatGPT automation initialization (attempt {attempt + 1}/{max_retries})...")
+                
+                # Initialize browser
+                if not await self.initialize():
+                    logger.error(f"Failed to initialize browser during startup (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        logger.info("Retrying browser initialization...")
+                        await asyncio.sleep(5)
+                        continue
+                    return False
+                
+                # Handle login
+                if not await self.login_if_needed():
+                    logger.error(f"Failed to complete login during startup (attempt {attempt + 1})")
+                    if attempt < max_retries - 1:
+                        logger.info("Retrying login process...")
+                        await self.close()  # Clean up before retry
+                        await asyncio.sleep(5)
+                        continue
+                    return False
+                
+                logger.info("ChatGPT automation ready! Server can now accept requests.")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error during startup initialization (attempt {attempt + 1}): {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info("Retrying initialization...")
+                    await self.close()  # Clean up before retry
+                    await asyncio.sleep(5)
+                    continue
+                return False
+        
+        logger.error("Failed to initialize ChatGPT automation after all retries")
+        return False
+    
     async def get_chat_response(self, prompt: str, max_retries: int = 3):
         """Get response from ChatGPT for the given prompt"""
         try:
-            # Initialize browser if not already done
-            if not self.browser:
-                if not await self.initialize():
-                    return None
-            
-            # Check login status
-            if not self.is_logged_in:
-                if not await self.login_if_needed():
-                    return None
+            # Check if automation is ready
+            if not self.is_initialized or not self.is_logged_in:
+                logger.error("ChatGPT automation not ready. Please ensure server started successfully.")
+                return None
             
             # Find the chat input
             chat_input = await self.page.query_selector('textarea[placeholder*="Message"]')

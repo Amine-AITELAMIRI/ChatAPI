@@ -12,7 +12,7 @@ class Config:
     RESPONSE_TIMEOUT: int = 30  # seconds
     
     # Browser configuration
-    HEADLESS_MODE: bool = False  # Set to False for debugging
+    HEADLESS_MODE: bool = False  # Set to False for login process and debugging
     BROWSER_TIMEOUT: int = 30000  # milliseconds
     
     # Logging configuration
