@@ -118,6 +118,11 @@ class ChatGPTAutomation:
             # Try multiple selectors for the chat input
             chat_input = None
             selectors_to_try = [
+                'div[contenteditable="true"].ProseMirror',  # The actual input field
+                'div#prompt-textarea[contenteditable="true"]',  # By ID
+                'div[contenteditable="true"]',  # Any contenteditable div
+                'textarea[name="prompt-textarea"]',  # Hidden textarea fallback
+                'textarea[placeholder*="Ask anything"]',  # Placeholder text
                 'textarea[placeholder*="Message"]',
                 'textarea[placeholder="Message ChatGPT…"]',
                 'textarea[data-id="root"]',
@@ -134,17 +139,30 @@ class ChatGPTAutomation:
                     break
             
             if not chat_input:
-                # Debug: List all textareas on the page
+                # Debug: List all textareas and contenteditable divs on the page
                 all_textareas = await self.page.query_selector_all('textarea')
-                logger.error(f"Could not find chat input field. Found {len(all_textareas)} textareas on page:")
+                all_contenteditable = await self.page.query_selector_all('div[contenteditable="true"]')
+                
+                logger.error(f"Could not find chat input field. Found {len(all_textareas)} textareas and {len(all_contenteditable)} contenteditable divs:")
+                
                 for i, textarea in enumerate(all_textareas):
                     try:
                         placeholder = await textarea.get_attribute('placeholder')
                         role = await textarea.get_attribute('role')
                         data_id = await textarea.get_attribute('data-id')
-                        logger.error(f"  Textarea {i+1}: placeholder='{placeholder}', role='{role}', data-id='{data_id}'")
+                        name = await textarea.get_attribute('name')
+                        logger.error(f"  Textarea {i+1}: placeholder='{placeholder}', role='{role}', data-id='{data_id}', name='{name}'")
                     except:
                         logger.error(f"  Textarea {i+1}: Could not get attributes")
+                
+                for i, div in enumerate(all_contenteditable):
+                    try:
+                        class_name = await div.get_attribute('class')
+                        id_attr = await div.get_attribute('id')
+                        logger.error(f"  Contenteditable div {i+1}: class='{class_name}', id='{id_attr}'")
+                    except:
+                        logger.error(f"  Contenteditable div {i+1}: Could not get attributes")
+                
                 return None
             
             # Clear any existing text and type the prompt
@@ -152,17 +170,45 @@ class ChatGPTAutomation:
             await chat_input.click()
             await asyncio.sleep(0.5)  # Wait for focus
             
-            # Clear any existing text
-            await chat_input.fill('')
-            await asyncio.sleep(0.2)
+            # Check if it's a contenteditable div or textarea
+            tag_name = await chat_input.evaluate('el => el.tagName.toLowerCase()')
+            logger.info(f"Input element type: {tag_name}")
             
-            # Type the prompt
-            await chat_input.type(prompt, delay=50)  # Type with small delay
-            await asyncio.sleep(0.5)  # Wait for typing to complete
-            
-            # Verify text was entered
-            current_text = await chat_input.input_value()
-            logger.info(f"Text in input field: '{current_text}'")
+            if tag_name == 'div':
+                # Handle contenteditable div (ProseMirror)
+                logger.info("Handling contenteditable div input")
+                
+                # Clear existing content
+                await chat_input.evaluate('el => el.innerHTML = ""')
+                await asyncio.sleep(0.2)
+                
+                # Type the prompt using innerHTML
+                await chat_input.evaluate(f'el => el.innerHTML = "<p>{prompt}</p>"')
+                await asyncio.sleep(0.5)
+                
+                # Trigger input event to notify the editor
+                await chat_input.evaluate('el => el.dispatchEvent(new Event("input", { bubbles: true }))')
+                await asyncio.sleep(0.2)
+                
+                # Verify text was entered
+                current_text = await chat_input.inner_text()
+                logger.info(f"Text in contenteditable div: '{current_text}'")
+                
+            else:
+                # Handle regular textarea
+                logger.info("Handling textarea input")
+                
+                # Clear any existing text
+                await chat_input.fill('')
+                await asyncio.sleep(0.2)
+                
+                # Type the prompt
+                await chat_input.type(prompt, delay=50)  # Type with small delay
+                await asyncio.sleep(0.5)  # Wait for typing to complete
+                
+                # Verify text was entered
+                current_text = await chat_input.input_value()
+                logger.info(f"Text in textarea: '{current_text}'")
             
             if not current_text or current_text.strip() != prompt.strip():
                 logger.error(f"Failed to type text properly. Expected: '{prompt}', Got: '{current_text}'")
