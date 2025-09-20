@@ -228,11 +228,7 @@ class ChatGPTAutomation:
 
             total_timeout = Config.RESPONSE_TIMEOUT * max(1, max_retries)
 
-            try:
-                await self.page.keyboard.press('Enter')
-                logger.info("Pressed Enter to send the message")
-            except Exception as enter_error:
-                logger.warning(f"Failed to send message with Enter key: {str(enter_error)}")
+            await self.submit_message(chat_input)
 
             response = await self.wait_for_response(previous_response_count, total_timeout)
             if response:
@@ -272,6 +268,21 @@ class ChatGPTAutomation:
                     break
             except Exception as overlay_error:
                 logger.debug(f"Overlay dismissal failed for {selector}: {overlay_error}")
+
+
+    async def submit_message(self, chat_input):
+        """Send the current composer contents using the most reliable available method."""
+        try:
+            await chat_input.press("Enter")
+            logger.info("Pressed Enter via input element to send the message")
+            return
+        except Exception as err:
+            logger.debug(f"Chat input press failed: {err}")
+        try:
+            await self.page.keyboard.press("Enter")
+            logger.info("Pressed Enter via page keyboard to send the message")
+        except Exception as err:
+            logger.error(f"Unable to submit message with Enter: {err}")
 
     async def click_send_button(self) -> bool:
         """Attempt to click the send button if it exists"""
@@ -322,7 +333,7 @@ class ChatGPTAutomation:
         try:
             await self.page.wait_for_function(
                 '(payload) => document.querySelectorAll(payload.selector).length > payload.previousCount',
-                {"selector": selector, "previousCount": previous_count},
+                arg={"selector": selector, "previousCount": previous_count},
                 timeout=timeout_ms
             )
             await asyncio.sleep(2)
