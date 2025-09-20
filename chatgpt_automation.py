@@ -148,9 +148,25 @@ class ChatGPTAutomation:
                 return None
             
             # Clear any existing text and type the prompt
+            logger.info(f"Clicking on chat input and typing: '{prompt}'")
             await chat_input.click()
+            await asyncio.sleep(0.5)  # Wait for focus
+            
+            # Clear any existing text
             await chat_input.fill('')
+            await asyncio.sleep(0.2)
+            
+            # Type the prompt
             await chat_input.type(prompt, delay=50)  # Type with small delay
+            await asyncio.sleep(0.5)  # Wait for typing to complete
+            
+            # Verify text was entered
+            current_text = await chat_input.input_value()
+            logger.info(f"Text in input field: '{current_text}'")
+            
+            if not current_text or current_text.strip() != prompt.strip():
+                logger.error(f"Failed to type text properly. Expected: '{prompt}', Got: '{current_text}'")
+                return None
             
             # Find and click the send button
             send_button = None
@@ -185,8 +201,13 @@ class ChatGPTAutomation:
                         logger.error(f"  Button {i+1}: Could not get attributes")
                 return None
             
+            # Click the send button
+            logger.info("Clicking send button...")
             await send_button.click()
-            logger.info("Prompt sent to ChatGPT")
+            logger.info("Send button clicked - prompt sent to ChatGPT")
+            
+            # Wait a moment for the request to be processed
+            await asyncio.sleep(2)
             
             # Wait for response
             response = await self.wait_for_response(max_retries)
@@ -199,31 +220,49 @@ class ChatGPTAutomation:
     async def wait_for_response(self, max_retries: int = 3):
         """Wait for ChatGPT to generate a response"""
         try:
+            logger.info("Waiting for ChatGPT response...")
+            
             # Wait for the response to start appearing
-            await asyncio.sleep(2)
+            await asyncio.sleep(3)
             
             # Look for the response in the chat
             for attempt in range(max_retries):
                 try:
-                    # Wait for response to appear
-                    await self.page.wait_for_selector('[data-message-author-role="assistant"]', timeout=30000)
+                    logger.info(f"Attempt {attempt + 1}: Looking for assistant response...")
                     
-                    # Get all assistant messages
-                    assistant_messages = await self.page.query_selector_all('[data-message-author-role="assistant"]')
+                    # Try multiple selectors for assistant messages
+                    response_selectors = [
+                        '[data-message-author-role="assistant"]',
+                        '[data-testid="conversation-turn-3"]',  # Common ChatGPT selector
+                        '.markdown',  # Response content
+                        '[role="presentation"]',  # Another common selector
+                        '.prose'  # Response text container
+                    ]
                     
-                    if assistant_messages:
-                        # Get the last (most recent) message
-                        last_message = assistant_messages[-1]
-                        
+                    assistant_message = None
+                    for selector in response_selectors:
+                        try:
+                            logger.info(f"Trying response selector: {selector}")
+                            await self.page.wait_for_selector(selector, timeout=10000)
+                            assistant_message = await self.page.query_selector(selector)
+                            if assistant_message:
+                                logger.info(f"Found response with selector: {selector}")
+                                break
+                        except:
+                            continue
+                    
+                    if assistant_message:
                         # Extract text content
-                        response_text = await last_message.inner_text()
+                        response_text = await assistant_message.inner_text()
+                        logger.info(f"Response text preview: '{response_text[:100]}...'")
                         
                         if response_text and len(response_text.strip()) > 0:
                             logger.info("Successfully received response from ChatGPT")
                             return response_text.strip()
                     
                     # If no response yet, wait a bit more
-                    await asyncio.sleep(3)
+                    logger.info(f"No response yet, waiting 5 seconds... (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(5)
                     
                 except Exception as e:
                     logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
